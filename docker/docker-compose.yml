@@ -1,0 +1,49 @@
+version: '3.3'
+name: graduation-notification-production
+services:
+  sendemailworker-production:
+    image: ${DOCKER_REGISTRY-}sendemailworker-production
+    networks:
+      - backend
+    build:
+      context: ../
+      dockerfile: ./src/Graduation.Notification.SendEmail.Worker/Dockerfile
+    container_name: sendemailworker-production
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    volumes:
+      - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
+      - ${APPDATA}/ASP.NET/Https:/root/.aspnet/https:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 50M
+
+  api-production:
+    image: ${DOCKER_REGISTRY-}api-production
+    networks:
+      - backend
+    build:
+      context: ../
+      dockerfile: ./src/Graduation.Notification.API/Dockerfile
+    container_name: api-production
+    depends_on:
+      - sendemailworker-production
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:80
+    ports:
+      - "5015:80"
+    volumes:
+      - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
+      - ${APPDATA}/ASP.NET/Https:/root/.aspnet/https:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 100M
+
+networks:
+  backend:
+    driver: bridge

@@ -1,0 +1,60 @@
+version: '3.3'
+name: graduation-notification-staging
+services:
+  rabbitmq-staging:
+    image: masstransit/rabbitmq:latest
+    container_name: 'rabbitmq-staging'
+    ports:
+        - 5672:5672
+        - 15672:15672
+    networks:
+        - backend
+
+  sendemailworker-staging:
+    image: ${DOCKER_REGISTRY-}sendemailworker-staging
+    networks:
+      - backend
+    build:
+      context: ../
+      dockerfile: ./src/Graduation.Notification.SendEmail.Worker/Dockerfile
+    container_name: sendemailworker-staging
+    depends_on:
+      - rabbitmq-staging
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Staging
+    volumes:
+      - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
+      - ${APPDATA}/ASP.NET/Https:/root/.aspnet/https:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 50M
+
+  api-staging:
+    image: ${DOCKER_REGISTRY-}api-staging
+    networks:
+      - backend
+    build:
+      context: ../
+      dockerfile: ./src/Graduation.Notification.API/Dockerfile
+    container_name: api-staging
+    depends_on:
+      - sendemailworker-staging
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Staging
+      - ASPNETCORE_URLS=http://+:80
+    ports:
+      - "5015:80"
+    volumes:
+      - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
+      - ${APPDATA}/ASP.NET/Https:/root/.aspnet/https:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 100M
+
+networks:
+  backend:
+    driver: bridge

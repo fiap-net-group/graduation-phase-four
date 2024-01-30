@@ -1,0 +1,15 @@
+﻿version: '3.3'
+name: graduation-notification-develop
+services:
+  rabbitmq-develop:
+    image: masstransit/rabbitmq:latest
+    container_name: 'rabbitmq-develop'
+    ports:
+        - 5672:5672
+        - 15672:15672
+    networks:
+        - backend
+
+networks:
+  backend:
+    driver: bridge

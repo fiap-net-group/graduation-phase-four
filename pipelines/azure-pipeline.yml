@@ -1,0 +1,144 @@
+trigger:
+- '*'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: isMain
+    value: ${{eq(variables['Build.SourceBranch'], 'refs/heads/main')}}
+
+  # API deployment variables
+  - name: apiDockerfilePath
+    value: $(Build.SourcesDirectory)/src/Graduation.Notification.API/Dockerfile
+
+  #Send Email Worker deployment variables
+  - name: sendEmailWorkerDockerfilePath
+    value: $(Build.SourcesDirectory)/src/Graduation.Notification.SendEmail.Worker/Dockerfile
+  
+  # Variables for docker push
+  - name: tag
+    value: $(Build.BuildId)
+
+  # Variable group for the deploy
+  - group: graduation-phase-four
+
+stages:
+  - stage: BuildAndTest
+    displayName: "Build and Test application"
+    jobs:
+      - job: InstallDependencies
+        displayName: "Install Dependencies"
+        steps:
+          - script: 'wget -qO- https://raw.githubusercontent.com/artifacts-credprovider/master/helpers/installcredprovider.sh  | bash'
+            displayName: 'Install NuGet Tool'
+
+          - script: 'dotnet tool install --global dotnet-reportgenerator-globaltool --version 4.5.8'
+            displayName: 'Install Report Tool'
+
+          - task: UseDotNet@2
+            displayName: 'Install .NET 6'
+            inputs:
+              packageType: 'sdk'
+              version: 6.0.x
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Restore NuGet Packages'
+            inputs:
+              command: 'restore'
+              feedsToUse: 'select'
+              projects: '**/*.sln'
+              verbosityRestore: 'Minimal'
+
+          - task: SonarCloudPrepare@1
+            displayName: 'Prepare analysis on SonarCloud'
+            inputs:
+              SonarCloud: 'SonarCloud'
+              organization: 'fiap-net-group'
+              scannerMode: 'MSBuild'
+              projectKey: 'fiap-net-group_graduation-phase-four'
+              projectName: 'graduation-phase-four'
+              extraProperties: |
+                sonar.cs.vstest.reportsPaths=$(Agent.TempDirectory)/**/*.trx
+                sonar.cs.opencover.reportsPaths=$(Agent.BuildDirectory)/**/coverage.opencover.xml
+                sonar.verbose=true
+                sonar.exclusions=**/obj/**,**/*.dll,**/*Program.cs,**/*appsettings.json,**/*appsettings.*.json,**/*Dockerfile*
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Build Solution'
+            inputs:
+              command: 'build'
+              projects: '**/*.sln'
+              arguments: '--no-restore --configuration Release'
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Run Tests'
+            inputs:
+              command: 'test'
+              projects: '**/*.sln'
+              arguments: '--configuration Release --no-build --collect:"XPlat Code Coverage" /p:CollectCoverage=true /p:CoverletOutputFormat=opencover'
+
+          - task: PublishTestResults@2
+            displayName: 'Publish Code Coverage'
+            inputs:
+              testRunner: 'VSTest'
+              testResultsFiles: '$(Agent.TempDirectory)/**.*trx'
+              mergeTestResults: true 
+
+          - task: SonarCloudAnalyze@1
+            displayName: 'Run Sonar Analysis'
+            continueOnError: true
+
+          - task: SonarCloudPublish@1
+            displayName: 'Publish Sonar Analysis Result'
+            continueOnError: true
+            inputs:
+              pollingTimeoutSec: '300'
+
+  - stage: DockerBuild  
+    displayName: "Deploy application"
+    condition: and(succeeded(), ${{variables.isMain}})
+    dependsOn: 
+      - BuildAndTest
+    jobs:
+      - job: BuildAndPublishApi
+        displayName: "API - Docker Build and Publish"
+        pool:
+          vmImage: $(vmImageName)
+        steps:
+          - task: Docker@2
+            displayName: "Build and push the API image to container registry"
+            inputs:
+              command: buildAndPush
+              repository: $(apiImageRepository)
+              dockerfile: $(apiDockerfilePath)
+              containerRegistry: $(dockerRegistryServiceConnection)
+              buildContext: ''
+              tags: |
+                $(tag)
+                latest
+      - job: BuildAndPublishWorkers
+        displayName: "Workers - Docker Build and Publish"
+        pool:
+          vmImage: $(vmImageName)
+        steps:
+          - task: Docker@2
+            displayName: "Build and push the Send Email Worker image to container registry"
+            inputs:
+              command: buildAndPush
+              repository: $(sendEmailWorkerImageRepository)
+              dockerfile: $(sendEmailWorkerDockerfilePath)
+              containerRegistry: $(dockerRegistryServiceConnection)
+              buildContext: ''
+              tags: |
+                $(tag)
+                latest        
+    
+
+
+
+
+
+
+
+
